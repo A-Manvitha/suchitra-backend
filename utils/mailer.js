@@ -15,6 +15,7 @@ const { Resend } = require("resend");
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const FROM_ADDRESS = process.env.EMAIL_FROM || "Suchitra Financial Services <onboarding@resend.dev>";
+const REPLY_TO = process.env.ADMIN_EMAIL; // hitting "Reply" on any email goes to your real Gmail
 
 // ── Send helper — wraps Resend API call with consistent logging ──────────────
 async function sendMail({ to, subject, html }) {
@@ -23,7 +24,13 @@ async function sendMail({ to, subject, html }) {
     return;
   }
   try {
-    const result = await resend.emails.send({ from: FROM_ADDRESS, to, subject, html });
+    const result = await resend.emails.send({
+      from: FROM_ADDRESS,
+      to,
+      subject,
+      html,
+      ...(REPLY_TO ? { reply_to: REPLY_TO } : {}),
+    });
     if (result.error) {
       console.error("❌ Resend API error:", result.error.message || result.error);
     } else {
