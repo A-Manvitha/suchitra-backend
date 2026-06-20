@@ -4,7 +4,7 @@ const nodemailer = require("nodemailer");
 // ── Create transporter ────────────────────────────────────────────────────────
 const createTransporter = () => {
   // Use Gmail (or any SMTP). Configure in .env
-  return nodemailer.createTransporter({
+  return nodemailer.createTransport({
     service: process.env.EMAIL_SERVICE || "gmail",
     auth: {
       user: process.env.EMAIL_USER,
