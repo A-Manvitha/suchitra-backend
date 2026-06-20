@@ -1,20 +1,38 @@
-// utils/mailer.js — Nodemailer transporter + email templates
-const nodemailer = require("nodemailer");
+// utils/mailer.js — Email sending via Resend API (HTTPS) + email templates
+//
+// Why Resend instead of Nodemailer/SMTP?
+// Render's free tier blocks outbound SMTP ports (587/465/25) to prevent spam abuse,
+// which causes ETIMEDOUT errors no matter how SMTP is configured. Resend sends
+// email over a normal HTTPS API call (port 443), which is never blocked.
+// Free tier: 3,000 emails/month, 100/day — plenty for a lead-gen site.
+//
+// Setup: 1) Sign up free at resend.com  2) Get your API key
+//        3) Set RESEND_API_KEY in .env / Render dashboard
+//        4) (Optional) Verify your own domain in Resend for a custom "from" address.
+//           Until verified, use the default: onboarding@resend.dev as EMAIL_FROM.
 
-// ── Create transporter ────────────────────────────────────────────────────────
-const createTransporter = () => {
-  // Use Gmail (or any SMTP). Configure in .env
-  return nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || "smtp.gmail.com",
-  port: Number(process.env.EMAIL_PORT) || 587,
-  secure: false,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  connectionTimeout: 10000,
-});
-};
+const { Resend } = require("resend");
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+
+const FROM_ADDRESS = process.env.EMAIL_FROM || "Suchitra Financial Services <onboarding@resend.dev>";
+
+// ── Send helper — wraps Resend API call with consistent logging ──────────────
+async function sendMail({ to, subject, html }) {
+  if (!resend) {
+    console.warn("⚠️  RESEND_API_KEY not set — email skipped:", subject);
+    return;
+  }
+  try {
+    const result = await resend.emails.send({ from: FROM_ADDRESS, to, subject, html });
+    if (result.error) {
+      console.error("❌ Resend API error:", result.error.message || result.error);
+    } else {
+      console.log("✅ Email sent:", subject, "→", to, "| id:", result.data?.id);
+    }
+  } catch (err) {
+    console.error("❌ Email send failed:", err.message);
+  }
+}
 
 // ── HTML template helpers ────────────────────────────────────────────────────
 const baseTemplate = (content) => `
@@ -63,8 +81,6 @@ const baseTemplate = (content) => `
 
 // ── Email: New lead to admin ──────────────────────────────────────────────────
 const sendNewLeadEmail = async (lead) => {
-  if (!process.env.EMAIL_USER) return;          // skip if not configured
-  const transporter = createTransporter();
   const html = baseTemplate(`
     <h2 style="color:#0B1D3A;margin:0 0 24px">🆕 New Lead Received</h2>
     <div class="label">Name</div>
@@ -90,8 +106,7 @@ const sendNewLeadEmail = async (lead) => {
     </p>
   `);
 
-  await transporter.sendMail({
-    from: `"Suchitra FinServ Alerts" <${process.env.EMAIL_USER}>`,
+  await sendMail({
     to: process.env.ADMIN_EMAIL || process.env.EMAIL_USER,
     subject: `🆕 New ${lead.loanType} Lead — ${lead.name} (${lead.phone})`,
     html,
@@ -100,8 +115,7 @@ const sendNewLeadEmail = async (lead) => {
 
 // ── Email: Acknowledgement to applicant ──────────────────────────────────────
 const sendAcknowledgementEmail = async (lead) => {
-  if (!process.env.EMAIL_USER || !lead.email) return;
-  const transporter = createTransporter();
+  if (!lead.email) return;
   const html = baseTemplate(`
     <h2 style="color:#0B1D3A;margin:0 0 8px">Thank you, ${lead.name.split(" ")[0]}! 🙏</h2>
     <p style="color:#3D4E63;margin:0 0 24px;line-height:1.7">
@@ -126,8 +140,7 @@ const sendAcknowledgementEmail = async (lead) => {
     </p>
   `);
 
-  await transporter.sendMail({
-    from: `"Suchitra Financial Services" <${process.env.EMAIL_USER}>`,
+  await sendMail({
     to: lead.email,
     subject: `We received your ${lead.loanType} enquiry — Suchitra Financial Services`,
     html,
@@ -136,8 +149,7 @@ const sendAcknowledgementEmail = async (lead) => {
 
 // ── Email: Status update to lead ─────────────────────────────────────────────
 const sendStatusUpdateEmail = async (lead, newStatus) => {
-  if (!process.env.EMAIL_USER || !lead.email) return;
-  const transporter = createTransporter();
+  if (!lead.email) return;
 
   const statusMessages = {
     "In Progress": { emoji: "⚡", text: "Your application is now being processed by our team." },
@@ -163,8 +175,7 @@ const sendStatusUpdateEmail = async (lead, newStatus) => {
     </p>
   `);
 
-  await transporter.sendMail({
-    from: `"Suchitra Financial Services" <${process.env.EMAIL_USER}>`,
+  await sendMail({
     to: lead.email,
     subject: `${info.emoji} ${newStatus}: Your ${lead.loanType} Application — Suchitra Financial Services`,
     html,
@@ -173,8 +184,6 @@ const sendStatusUpdateEmail = async (lead, newStatus) => {
 
 // ── Email: General contact form ───────────────────────────────────────────────
 const sendContactEmail = async ({ name, phone, email, loanType, message }) => {
-  if (!process.env.EMAIL_USER) return;
-  const transporter = createTransporter();
   const html = baseTemplate(`
     <h2 style="color:#0B1D3A;margin:0 0 24px">📩 New Contact Form Submission</h2>
     <div class="label">Name</div><div class="value">${name}</div>
@@ -184,8 +193,7 @@ const sendContactEmail = async ({ name, phone, email, loanType, message }) => {
     <div class="label">Message</div><div class="value">${message || "—"}</div>
   `);
 
-  await transporter.sendMail({
-    from: `"Suchitra FinServ Alerts" <${process.env.EMAIL_USER}>`,
+  await sendMail({
     to: process.env.ADMIN_EMAIL || process.env.EMAIL_USER,
     subject: `📩 Contact Form: ${name} (${phone})`,
     html,
